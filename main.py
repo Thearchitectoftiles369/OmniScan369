@@ -1,5 +1,4 @@
-
-import subprocess
+        import subprocess
 import sys
 import sqlite3
 import asyncio
@@ -54,7 +53,6 @@ def init_db():
 
 init_db()
 
-# Фиксирани анатомични позиции върху стабилния 3D модел
 BIO_SYSTEMS = [
     {"id": "brain", "name": "Brain Cortex", "x": 0.50, "y": 0.14, "side": "left"},
     {"id": "optic", "name": "Optic Nerve", "x": 0.52, "y": 0.17, "side": "right"},
@@ -180,12 +178,23 @@ class SimulationSession:
                 pass
 
     def to_dict(self) -> Dict[str, Any]:
+        score = self.get_display_score()
+        
+        # ЛОГИКА ЗА ТЕРАПЕВТИЧНИ ИНСТРУКЦИИ
+        if score < 75:
+            instruction = "⚠️ ЗАСЕЧЕН СТРЕС: Вдишай дълбоко 2 пъти и издишай бавно за ресет на тялото."
+        elif score < 90:
+            instruction = "⚡ ЛЕКО НАПРЕЖЕНИЕ: Отпусни раменете и запази спокоен ритъм на дишане."
+        else:
+            instruction = "💚 ОПТИМАЛЕН БАЛАНС: Нервната система е в хомеостаза."
+
         return {
             "anomaly_active": self.anomaly_active,
             "patient_name": self.current_patient_name,
             "agents": self.agents,
             "logs": self.logs,
-            "vitality_score": self.get_display_score()
+            "vitality_score": score,
+            "instruction": instruction
         }
 
 @app.get("/")
@@ -336,6 +345,13 @@ HTML_CONTENT = """<!DOCTYPE html>
         .subtitle { font-size: 9px; color: #64748b; margin-top: 2px; font-weight: bold; text-transform: uppercase; }
         .vitality-badge { position: absolute; right: 0; top: 0; background: #064e3b; color: #34d399; font-size: 12px; padding: 4px 8px; border-radius: 3px; font-weight: bold; border: 1px solid #047857; box-shadow: 0 0 10px rgba(52,211,153,0.2); }
         
+        /* НОВИ СТИЛОВЕ ЗА ТЕРАПЕВТИЧНИЯ ПАНЕЛ */
+        .instruction-box { padding: 10px; margin-top: 10px; font-size: 11px; border-radius: 4px; line-height: 1.4; text-align: center; font-weight: bold; transition: all 0.3s ease; }
+        .instr-stress { color: #f87171; border: 1px solid #7f1d1d; background: #2a0a0a; animation: pulse-red 2s infinite; }
+        .instr-warn { color: #fbbf24; border: 1px solid #b45309; background: #1f1406; }
+        .instr-ok { color: #34d399; border: 1px solid #047857; background: #02120a; }
+        @keyframes pulse-red { 0% { box-shadow: 0 0 0 0 rgba(220, 38, 38, 0.4); } 70% { box-shadow: 0 0 0 6px rgba(220, 38, 38, 0); } 100% { box-shadow: 0 0 0 0 rgba(220, 38, 38, 0); } }
+
         .db-panel { background: #060d1a; border: 1px solid #102445; padding: 10px; border-radius: 4px; display: flex; flex-direction: column; gap: 8px; }
         .db-title { font-size: 11px; color: #38bdf8; font-weight: bold; }
         .patient-row { display: flex; gap: 5px; }
@@ -380,6 +396,7 @@ HTML_CONTENT = """<!DOCTYPE html>
             <div class="subtitle">Bio-Resonance Hologram Matrix</div>
             <div id="active-patient" class="active-patient-badge">Patient: None</div>
             <div id="vitality-index" class="vitality-badge">ANS Tone: 98%</div>
+            <div id="therapy-instruction" class="instruction-box instr-ok">Изчаква се анализ на пациента...</div>
         </div>
         <div class="db-panel">
             <div class="db-title">👤 CLIENT MANAGEMENT</div>
@@ -410,59 +427,43 @@ HTML_CONTENT = """<!DOCTYPE html>
         const vitalityIndexBox = document.getElementById('vitality-index');
         const historyContainer = document.getElementById('history-container');
         const printReportArea = document.getElementById('print-report-area');
+        const therapyBox = document.getElementById('therapy-instruction'); // Референция към новия панел
         
-        let currentAppState = { anomaly_active: false, patient_name: "None", agents: [], logs: [], vitality_score: 98 };
+        let currentAppState = { anomaly_active: false, patient_name: "None", agents: [], logs: [], vitality_score: 98, instruction: "" };
         let lastLoadedArchiveLogs = []; let lastLoadedArchiveDate = ""; let lastLoadedArchiveScore = 98;
         
-        // --- ПЪЛНА ВИСОКОКАЧЕСТВЕНА СТАТИЧНА 3D МАТРИЦА НА ЧОВЕШКО ТЯЛО ---
-        // Съдържа прецизни извивки за глава, рамене, торс, ръце и крака
         const human3DMesh = [
-            // Главата
             {x: 0.50, y: 0.08}, {x: 0.53, y: 0.09}, {x: 0.55, y: 0.12}, {x: 0.55, y: 0.16}, 
             {x: 0.52, y: 0.19}, {x: 0.50, y: 0.20}, {x: 0.48, y: 0.19}, {x: 0.45, y: 0.16}, 
             {x: 0.45, y: 0.12}, {x: 0.47, y: 0.09}, {x: 0.50, y: 0.08},
-            // Десен врат и рамо
             {x: 0.52, y: 0.20}, {x: 0.53, y: 0.23}, {x: 0.58, y: 0.25}, {x: 0.63, y: 0.27},
-            // Дясна ръка (външна страна)
             {x: 0.65, y: 0.32}, {x: 0.67, y: 0.39}, {x: 0.68, y: 0.47}, {x: 0.69, y: 0.55}, 
             {x: 0.67, y: 0.58}, {x: 0.65, y: 0.56}, 
-            // Дясна ръка (вътрешна страна нагоре до подмишницата)
             {x: 0.65, y: 0.48}, {x: 0.63, y: 0.40}, {x: 0.60, y: 0.33},
-            // Десен торс и талия
             {x: 0.59, y: 0.38}, {x: 0.58, y: 0.45}, {x: 0.59, y: 0.52}, {x: 0.57, y: 0.56},
-            // Десен крак (външна страна)
             {x: 0.56, y: 0.64}, {x: 0.55, y: 0.73}, {x: 0.53, y: 0.82}, {x: 0.52, y: 0.90}, 
             {x: 0.53, y: 0.94}, {x: 0.49, y: 0.94},
-            // Десен крак (вътрешна страна нагоре)
             {x: 0.49, y: 0.85}, {x: 0.51, y: 0.75}, {x: 0.52, y: 0.66}, {x: 0.50, y: 0.60},
-            // Ляв крак (вътрешна страна надолу)
             {x: 0.48, y: 0.66}, {x: 0.49, y: 0.75}, {x: 0.51, y: 0.85}, {x: 0.51, y: 0.94}, 
             {x: 0.47, y: 0.94}, {x: 0.48, y: 0.90}, {x: 0.47, y: 0.82}, {x: 0.45, y: 0.73}, 
             {x: 0.44, y: 0.64},
-            // Ляв торс и талия
             {x: 0.43, y: 0.56}, {x: 0.41, y: 0.52}, {x: 0.42, y: 0.45}, {x: 0.41, y: 0.38},
-            // Лява ръка (вътрешна страна надолу)
             {x: 0.40, y: 0.33}, {x: 0.37, y: 0.40}, {x: 0.35, y: 0.48}, {x: 0.35, y: 0.56}, 
             {x: 0.33, y: 0.58}, {x: 0.31, y: 0.55}, {x: 0.32, y: 0.47}, {x: 0.33, y: 0.39}, 
             {x: 0.35, y: 0.32},
-            // Ляво рамо и врат
             {x: 0.37, y: 0.27}, {x: 0.42, y: 0.25}, {x: 0.47, y: 0.23}, {x: 0.48, y: 0.20}
         ];
-        // Вътрешни анатомични линии на мускулатурата за 3D обем
         const innerAnatomyLines = [
-            // Гръдни мускули и ключица
             [{x: 0.43, y: 0.27}, {x: 0.50, y: 0.29}, {x: 0.57, y: 0.27}],
             [{x: 0.44, y: 0.33}, {x: 0.50, y: 0.34}, {x: 0.56, y: 0.33}],
-            // Абдоминална линия (коремни плочки)
             [{x: 0.50, y: 0.34}, {x: 0.50, y: 0.55}],
             [{x: 0.46, y: 0.40}, {x: 0.54, y: 0.40}],
             [{x: 0.46, y: 0.45}, {x: 0.54, y: 0.45}],
             [{x: 0.47, y: 0.50}, {x: 0.53, y: 0.50}],
-            // Извивки на коленете
             [{x: 0.45, y: 0.77}, {x: 0.48, y: 0.77}],
             [{x: 0.52, y: 0.77}, {x: 0.55, y: 0.77}]
         ];
-        // --- УЕБСОКЕТ КЛИЕНТ ---
+
         const clientId = crypto.randomUUID();
         const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
         let host = window.location.host; let path = window.location.pathname;
@@ -480,6 +481,19 @@ HTML_CONTENT = """<!DOCTYPE html>
                 activePatientBadge.innerText = `Client: ${currentAppState.patient_name}`;
                 vitalityIndexBox.innerText = `ANS Tone: ${currentAppState.vitality_score}%`;
                 vitalityIndexBox.style.background = currentAppState.vitality_score < 50 ? "#7f1d1d" : "#064e3b";
+                
+                // ОБНОВЯВАНЕ НА ТЕРАПЕВТИЧНАТА ИНСТРУКЦИЯ И ЦВЕТОВЕТЕ
+                if (currentAppState.instruction) {
+                    therapyBox.innerText = currentAppState.instruction;
+                    if (currentAppState.vitality_score < 75) {
+                        therapyBox.className = "instruction-box instr-stress";
+                    } else if (currentAppState.vitality_score < 90) {
+                        therapyBox.className = "instruction-box instr-warn";
+                    } else {
+                        therapyBox.className = "instruction-box instr-ok";
+                    }
+                }
+                
                 if (currentAppState.patient_name !== "None") patientSelect.value = currentAppState.patient_name;
                 renderLogs();
             }
@@ -515,7 +529,7 @@ HTML_CONTENT = """<!DOCTYPE html>
         patientSelect.addEventListener('change', (e) => { if(e.target.value) sendCommand({ command: "select-patient", patient_name: e.target.value }); });
         function renderLogs() { if (!currentAppState.anomaly_active && logsContainer.innerHTML.includes("REPORT")) return; logsContainer.innerHTML = currentAppState.logs.map(l => `<div class="log-entry ${l.is_anomaly ? 'log-anomaly' : ''}">${l.text}</div>`).join(''); logsContainer.scrollTop = logsContainer.scrollHeight; }
         anomBtn.addEventListener('click', () => { sendCommand({ command: "toggle-anomaly" }); });
-        // --- ЛАЗЕРЕН СКЕНЕР И НЕОНОВ ДИЗАЙН ---
+
         let laserY = 0.0;
         let laserDirection = 1;
         function drawLoop() {
@@ -523,20 +537,18 @@ HTML_CONTENT = """<!DOCTYPE html>
             const w = canvas.width; const h = canvas.height;
             const isAnomActive = currentAppState.anomaly_active;
             
-            // Движение на лазерната линия при сканиране
             if (isAnomActive) {
                 laserY += 0.008 * laserDirection;
                 if (laserY > 0.95 || laserY < 0.05) laserDirection *= -1;
             } else {
                 laserY = 0.0;
             }
-            // 1. ИЗРИСУВАНЕ НА АНАТОМИЧНИЯ 3D МАТРИЧЕН СИЛУЕТ С НЕОНОВ ЕФЕКТ
+
             ctx.lineWidth = 2.2;
             ctx.shadowBlur = 15;
             ctx.shadowColor = isAnomActive ? 'rgba(239, 68, 68, 0.9)' : 'rgba(0, 240, 255, 0.9)';
             ctx.strokeStyle = isAnomActive ? '#ef4444' : '#00f0ff';
             
-            // Външен главен контур на тялото
             ctx.beginPath();
             human3DMesh.forEach((pt, i) => {
                 let targetX = pt.x * w;
@@ -546,7 +558,7 @@ HTML_CONTENT = """<!DOCTYPE html>
             });
             ctx.closePath();
             ctx.stroke();
-            // Вътрешни анатомични мускулни линии
+
             ctx.lineWidth = 1.2;
             innerAnatomyLines.forEach(line => {
                 ctx.beginPath();
@@ -557,8 +569,8 @@ HTML_CONTENT = """<!DOCTYPE html>
                 ctx.stroke();
             });
             
-            ctx.shadowBlur = 0; // Изключваме сянката за текстовете за лекота
-            // 2. ХОРИЗОНТАЛЕН ЛАЗЕРЕН ЛЪЧ (ПРИ АКТИВНО СКАНИРАНЕ)
+            ctx.shadowBlur = 0; 
+            
             if (isAnomActive) {
                 ctx.shadowBlur = 10;
                 ctx.shadowColor = '#ef4444';
@@ -570,7 +582,7 @@ HTML_CONTENT = """<!DOCTYPE html>
                 ctx.stroke();
                 ctx.shadowBlur = 0;
             }
-            // 3. БИО-СЕНЗОРИ И СТРАНИЧНИ ИНДИКАТОРИ
+            
             if (currentAppState.agents) {
                 const pulses = (Date.now() * 0.005);
                 
@@ -578,22 +590,18 @@ HTML_CONTENT = """<!DOCTYPE html>
                     let pointX = agent.x * w;
                     let pointY = agent.y * h;
                     
-                    // Пулсиращ ефект за точките
                     let radius = agent.is_anomaly ? 6.5 + Math.sin(pulses + index) * 2.5 : 5 + Math.sin(pulses * 0.5 + index) * 1.5;
                     
-                    // Външно сияние за органа
                     ctx.beginPath();
                     ctx.arc(pointX, pointY, radius + 4, 0, 2 * Math.PI);
                     ctx.fillStyle = agent.is_anomaly ? 'rgba(239, 68, 68, 0.25)' : 'rgba(0, 240, 255, 0.15)';
                     ctx.fill();
                     
-                    // Център на органа
                     ctx.beginPath();
                     ctx.arc(pointX, pointY, radius, 0, 2 * Math.PI);
                     ctx.fillStyle = agent.is_anomaly ? '#ef4444' : '#00f0ff';
                     ctx.fill();
                     
-                    // Текстови етикети отстрани
                     ctx.fillStyle = agent.is_anomaly ? '#f87171' : '#cbd5e1';
                     ctx.font = 'bold 11px monospace';
                     
@@ -601,7 +609,6 @@ HTML_CONTENT = """<!DOCTYPE html>
                     let labelY = 40 + (index * ((h - 70) / currentAppState.agents.length));
                     let labelX = agent.side === 'left' ? 20 : w - ctx.measureText(labelText).width - 20;
                     
-                    // Свързваща линия от сензора до текста
                     ctx.beginPath();
                     ctx.strokeStyle = agent.is_anomaly ? 'rgba(239, 68, 68, 0.2)' : 'rgba(0, 240, 255, 0.15)';
                     ctx.lineWidth = 1;
@@ -628,5 +635,3 @@ HTML_CONTENT = """<!DOCTYPE html>
     </script>
 </body>
 </html>
-"""
-
