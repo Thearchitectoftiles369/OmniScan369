@@ -180,7 +180,6 @@ class SimulationSession:
     def to_dict(self) -> Dict[str, Any]:
         score = self.get_display_score()
         
-        # ЛОГИКА ЗА ТЕРАПЕВТИЧНИ ИНСТРУКЦИИ
         if score < 75:
             instruction = "⚠️ ЗАСЕЧЕН СТРЕС: Вдишай дълбоко 2 пъти и издишай бавно за ресет на тялото."
         elif score < 90:
@@ -345,7 +344,6 @@ HTML_CONTENT = """<!DOCTYPE html>
         .subtitle { font-size: 9px; color: #64748b; margin-top: 2px; font-weight: bold; text-transform: uppercase; }
         .vitality-badge { position: absolute; right: 0; top: 0; background: #064e3b; color: #34d399; font-size: 12px; padding: 4px 8px; border-radius: 3px; font-weight: bold; border: 1px solid #047857; box-shadow: 0 0 10px rgba(52,211,153,0.2); }
         
-        /* НОВИ СТИЛОВЕ ЗА ТЕРАПЕВТИЧНИЯ ПАНЕЛ */
         .instruction-box { padding: 10px; margin-top: 10px; font-size: 11px; border-radius: 4px; line-height: 1.4; text-align: center; font-weight: bold; transition: all 0.3s ease; }
         .instr-stress { color: #f87171; border: 1px solid #7f1d1d; background: #2a0a0a; animation: pulse-red 2s infinite; }
         .instr-warn { color: #fbbf24; border: 1px solid #b45309; background: #1f1406; }
@@ -427,7 +425,7 @@ HTML_CONTENT = """<!DOCTYPE html>
         const vitalityIndexBox = document.getElementById('vitality-index');
         const historyContainer = document.getElementById('history-container');
         const printReportArea = document.getElementById('print-report-area');
-        const therapyBox = document.getElementById('therapy-instruction'); // Референция към новия панел
+        const therapyBox = document.getElementById('therapy-instruction');
         
         let currentAppState = { anomaly_active: false, patient_name: "None", agents: [], logs: [], vitality_score: 98, instruction: "" };
         let lastLoadedArchiveLogs = []; let lastLoadedArchiveDate = ""; let lastLoadedArchiveScore = 98;
@@ -482,7 +480,6 @@ HTML_CONTENT = """<!DOCTYPE html>
                 vitalityIndexBox.innerText = `ANS Tone: ${currentAppState.vitality_score}%`;
                 vitalityIndexBox.style.background = currentAppState.vitality_score < 50 ? "#7f1d1d" : "#064e3b";
                 
-                // ОБНОВЯВАНЕ НА ТЕРАПЕВТИЧНАТА ИНСТРУКЦИЯ И ЦВЕТОВЕТЕ
                 if (currentAppState.instruction) {
                     therapyBox.innerText = currentAppState.instruction;
                     if (currentAppState.vitality_score < 75) {
@@ -509,8 +506,11 @@ HTML_CONTENT = """<!DOCTYPE html>
             logsContainer.scrollTop = 0;
             document.getElementById('real-print-btn').addEventListener('click', triggerDirectPrint);
         }
+        
         function triggerDirectPrint() {
             let logHTML = lastLoadedArchiveLogs.map(l => `<div class="${l.is_anomaly ? 'print-anomaly-line' : 'print-normal-line'}">${l.text}</div>`).join('');
+            let currentInstruction = therapyBox.innerText;
+
             printReportArea.innerHTML = `
                 <div style="border-left: 4px solid #00f0ff; padding-left: 15px; margin-bottom: 30px;">
                     <h2 style="margin:0; color:#0369a1; font-size:24px;">🧬 OMNISCAN 369 - BIO-WELLNESS REPORT</h2>
@@ -521,10 +521,18 @@ HTML_CONTENT = """<!DOCTYPE html>
                     <tr><td style="padding:8px; font-weight:bold;">ASSESSMENT DATE:</td><td style="padding:8px; border-bottom:1px solid #e2e8f0;">${lastLoadedArchiveDate}</td></tr>
                     <tr style="background:#f8fafc;"><td style="padding:8px; font-weight:bold;">AUTONOMIC SCORE:</td><td style="padding:8px; border-bottom:1px solid #e2e8f0; color:#0369a1; font-weight:bold; font-size:16px;">${lastLoadedArchiveScore}% (ANS Tone)</td></tr>
                 </table>
-                <div class="print-card">${logHTML}</div>
+                <div class="print-card" style="margin-bottom: 20px;">${logHTML}</div>
+                
+                <div style="margin-top: 30px; padding: 15px; border: 1px dashed #0369a1; background: #f0f9ff; border-radius: 4px;">
+                    <h4 style="margin: 0 0 8px 0; color: #0369a1; font-size: 14px;">🧘 RECOMMENDED THERAPY ACTION (Предписание):</h4>
+                    <p style="margin: 0; font-size: 13px; color: #1e293b; line-height: 1.5; font-weight: bold;">
+                        ${currentInstruction}
+                    </p>
+                </div>
             `;
             window.print();
         }
+        
         addPatientBtn.addEventListener('click', () => { const val = newPatientInput.value.trim(); if(val) { sendCommand({ command: "create-patient", patient_name: val }); newPatientInput.value = ""; } });
         patientSelect.addEventListener('change', (e) => { if(e.target.value) sendCommand({ command: "select-patient", patient_name: e.target.value }); });
         function renderLogs() { if (!currentAppState.anomaly_active && logsContainer.innerHTML.includes("REPORT")) return; logsContainer.innerHTML = currentAppState.logs.map(l => `<div class="log-entry ${l.is_anomaly ? 'log-anomaly' : ''}">${l.text}</div>`).join(''); logsContainer.scrollTop = logsContainer.scrollHeight; }
@@ -606,17 +614,16 @@ HTML_CONTENT = """<!DOCTYPE html>
                     ctx.font = 'bold 11px monospace';
                     
                     let labelText = `${agent.name} [${agent.hrv}ms]`;
-                    let labelY = 40 + (index * ((h - 70) / currentAppState.agents.length));
                     let labelX = agent.side === 'left' ? 20 : w - ctx.measureText(labelText).width - 20;
                     
                     ctx.beginPath();
                     ctx.strokeStyle = agent.is_anomaly ? 'rgba(239, 68, 68, 0.2)' : 'rgba(0, 240, 255, 0.15)';
                     ctx.lineWidth = 1;
                     ctx.moveTo(pointX, pointY);
-                    ctx.lineTo(agent.side === 'left' ? labelX + 50 : labelX, labelY - 4);
+                    ctx.lineTo(agent.side === 'left' ? labelX + ctx.measureText(labelText).width - 30 : labelX, pointY);
                     ctx.stroke();
                     
-                    ctx.fillText(labelText, labelX, labelY);
+                    ctx.fillText(labelText, labelX, pointY + 4);
                 });
             }
             anomBtn.className = isAnomActive ? 'main-btn active' : 'main-btn';
@@ -635,3 +642,4 @@ HTML_CONTENT = """<!DOCTYPE html>
     </script>
 </body>
 </html>
+"""
