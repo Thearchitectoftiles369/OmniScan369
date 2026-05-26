@@ -54,38 +54,40 @@ def init_db():
 init_db()
 
 BIO_SYSTEMS = [
-    {"id": "brain", "name": "Brain Cortex", "x": 0.50, "y": 0.14, "side": "left"},
-    {"id": "optic", "name": "Optic Nerve", "x": 0.52, "y": 0.17, "side": "right"},
-    {"id": "thyroid", "name": "Thyroid Node", "x": 0.50, "y": 0.23, "side": "left"},
-    {"id": "vagus", "name": "Vagus Nerve", "x": 0.47, "y": 0.28, "side": "left"},
-    {"id": "lungs", "name": "Pulmonary Lungs", "x": 0.56, "y": 0.35, "side": "right"},
-    {"id": "heart", "name": "Heart Anatomy", "x": 0.46, "y": 0.36, "side": "left"},
-    {"id": "liver", "name": "Hepatic Liver", "x": 0.55, "y": 0.44, "side": "right"},
-    {"id": "stomach", "name": "Gastric Stomach", "x": 0.44, "y": 0.46, "side": "left"},
-    {"id": "kidneys", "name": "Renal Kidneys", "x": 0.50, "y": 0.53, "side": "right"}
+    {"id": "brain", "name": "CNS Autonomic Center", "x": 0.50, "y": 0.14, "side": "left"},
+    {"id": "vagus_cervical", "name": "Vagus Nerve Upper", "x": 0.52, "y": 0.17, "side": "right"},
+    {"id": "baro", "name": "Baroreceptor Reflex", "x": 0.50, "y": 0.23, "side": "left"},
+    {"id": "vagus", "name": "Main Vagal Tone", "x": 0.47, "y": 0.28, "side": "left"},
+    {"id": "sinus", "name": "SA Node Rhythm", "x": 0.56, "y": 0.35, "side": "right"},
+    {"id": "heart", "name": "HRV Spectrum (RMSSD)", "x": 0.46, "y": 0.36, "side": "left"},
+    {"id": "sympathetic", "name": "Sympathetic Chain", "x": 0.55, "y": 0.44, "side": "right"},
+    {"id": "diaphragm", "name": "Respiratory Sinus", "x": 0.44, "y": 0.46, "side": "left"},
+    {"id": "ans_balance", "name": "LF/HF Energy Balance", "x": 0.50, "y": 0.53, "side": "right"}
 ]
 
 class UserCommand(BaseModel):
-    command: Literal["toggle-anomaly", "focus-node", "select-patient", "create-patient", "get-session-details"]
+    command: Literal["toggle-anomaly", "focus-node", "select-patient", "create-patient", "get-session-details", "submit-hrv-data"]
     node_name: Optional[str] = None
     patient_name: Optional[str] = None
     session_id: Optional[int] = None
+    hrv_ms: Optional[int] = None
 
-def generate_wellness_telemetry(agent_name: str, force_anomaly: bool) -> tuple[str, bool]:
-    if force_anomaly:
-        hrv_ms = random.randint(15, 38)
+def generate_wellness_telemetry(agent_name: str, force_anomaly: bool, custom_hrv: Optional[int] = None) -> tuple[str, bool]:
+    hrv_ms = custom_hrv if custom_hrv is not None else (random.randint(22, 42) if force_anomaly else random.randint(58, 88))
+    is_stress = hrv_ms < 45
+    
+    if is_stress:
         status_messages = [
-            f"⚠️ Low HRV response in {agent_name}: {hrv_ms}ms. Cellular stress detected.",
-            f"🚨 Sympathetic overload in {agent_name} at {hrv_ms}ms. Elevated cortisol markers.",
-            f"📉 Reduced autonomic recovery for {agent_name}: {hrv_ms}ms. Fatigue alert."
+            f"⚠️ Понижен HRV тонус в {agent_name}: {hrv_ms}ms. Индикация за системен физически стрес.",
+            f"🚨 Симпатикова доминантност в {agent_name} ({hrv_ms}ms). Тялото е в режим 'Борба или Бягство'.",
+            f"📉 Намален капацитет за възстановяване в {agent_name}: {hrv_ms}ms. Препоръчва се релаксация."
         ]
         return random.choice(status_messages), True
     else:
-        hrv_ms = random.randint(55, 95)
         status_messages = [
-            f"💚 Homeostasis achieved for {agent_name}: {hrv_ms}ms (Optimal Vagus Tone).",
-            f"✅ Balanced neural feedback in {agent_name}: {hrv_ms}ms. Parasympathetic stability.",
-            f"✨ High recovery index for {agent_name}: {hrv_ms}ms. Systemic harmony."
+            f"💚 Стабилна вегетативна регулация в {agent_name}: {hrv_ms}ms. Отличен вагусов тонус.",
+            f"✅ Балансиран невронален фийдбек в {agent_name}: {hrv_ms}ms. Парасимпатикова стабилност.",
+            f"✨ Оптимален индекс на възстановяване в {agent_name}: {hrv_ms}ms. Системна хомеостаза."
         ]
         return random.choice(status_messages), False
 
@@ -95,49 +97,64 @@ class SimulationSession:
         self.current_patient_id = None
         self.current_patient_name = "None"
         self.current_session_id = None
-        self.agents = [{**system, "is_anomaly": False, "hrv": 75} for system in BIO_SYSTEMS]
-        self.logs = [{"text": "⚛️ OmniScan Holographic Matrix Online. 3D Mesh Ready.", "is_anomaly": False}]
-        self.session_scores = [] 
+        self.agents = [{**system, "is_anomaly": False, "hrv": 72} for system in BIO_SYSTEMS]
+        self.logs = [{"text": "⚛️ OmniScan HRV Matrix Online. Сензорен софтуер готов за калибриране.", "is_anomaly": False}]
+        self.session_scores = []
+        self.last_received_hrv = None
+        self.anomaly_count_limit = 0
 
     def update_state(self):
-        updated_log = False
-        for agent in self.agents:
-            old_state = agent["is_anomaly"]
-            if self.anomaly_active:
-                agent["is_anomaly"] = random.random() < 0.28
-            else:
+        if not self.anomaly_active:
+            for agent in self.agents:
                 agent["is_anomaly"] = False
-            
-            log_text, is_anom = generate_wellness_telemetry(agent["name"], agent["is_anomaly"])
-            agent["hrv"] = random.randint(15, 38) if agent["is_anomaly"] else random.randint(55, 95)
-            
-            if agent["is_anomaly"] and not old_state and random.random() < 0.3:
-                self.logs.append({"text": log_text, "is_anomaly": True})
-                updated_log = True
-                self.save_log_to_db(log_text, 1)
-                
-        if not updated_log and random.random() < 0.1:
-            target = random.choice(self.agents)
-            log_text, _ = generate_wellness_telemetry(target["name"], target["is_anomaly"])
-            self.logs.append({"text": log_text, "is_anomaly": target["is_anomaly"]})
-            self.save_log_to_db(log_text, 1 if target["is_anomaly"] else 0)
-            
-        if len(self.logs) > 20:
-            self.logs = self.logs[-20:]
+                agent["hrv"] = random.randint(62, 85)
+            self.last_received_hrv = None
+            return
 
-        if self.anomaly_active:
-            self.session_scores.append(self.calculate_current_moment_score())
+        if len(self.session_scores) == 0:
+            self.anomaly_count_limit = random.randint(1, 3)
+            chosen_agents = random.sample(self.agents, self.anomaly_count_limit)
+            for agent in self.agents:
+                agent["is_anomaly"] = (agent in chosen_agents)
+
+        # Конвертор: Ако получаваме реален RR-интервал (напр. 800ms), го превръщаме в HRV индекс за дисплея (между 20 и 90)
+        display_hrv_base = 70
+        if self.last_received_hrv is not None:
+            # Вариациите в пулса над 50ms показват добро здраве
+            pulse_variance = abs(self.last_received_hrv - 800) % 70
+            display_hrv_base = 40 + pulse_variance
+
+        for agent in self.agents:
+            if agent["is_anomaly"]:
+                base_val = (display_hrv_base - 25) if self.last_received_hrv else 35
+                agent["hrv"] = max(15, int(base_val + random.randint(-4, 4)))
+            else:
+                base_val = display_hrv_base if self.last_received_hrv else 70
+                agent["hrv"] = max(55, int(base_val + random.randint(-6, 6)))
+
+        if random.random() < 0.15:
+            target = random.choice(self.agents)
+            log_text, is_anom = generate_wellness_telemetry(target["name"], target["is_anomaly"], target["hrv"])
+            
+            if not any(l["text"] == log_text for l in self.logs[-4:]):
+                self.logs.append({"text": log_text, "is_anomaly": is_anom})
+                self.save_log_to_db(log_text, 1 if is_anom else 0)
+
+        self.session_scores.append(self.calculate_current_moment_score())
+        
+        if len(self.logs) > 15:
+            self.logs = self.logs[-15:]
 
     def calculate_current_moment_score(self) -> int:
         anomalies = sum(1 for a in self.agents if a["is_anomaly"])
-        score = 100 - (anomalies * 11)
-        return max(score, 12)
+        score = 98 - (anomalies * 12) - random.randint(0, 3)
+        return max(score, 45)
 
     def get_display_score(self) -> int:
         if not self.anomaly_active:
-            return 98
+            return 96
         if not self.session_scores:
-            return 98
+            return 96
         return int(sum(self.session_scores) / len(self.session_scores))
 
     def start_new_scan_session(self):
@@ -151,6 +168,9 @@ class SimulationSession:
                 self.current_session_id = cursor.lastrowid
                 conn.commit()
                 conn.close()
+                
+                start_msg = "🎯 Стартиран хармоничен анализ на сърдечния ритъм. Калибриране на сензора..."
+                self.logs.append({"text": start_msg, "is_anomaly": False})
             except Exception:
                 pass
 
@@ -163,6 +183,9 @@ class SimulationSession:
                 cursor.execute("UPDATE scan_sessions SET vitality_score = ? WHERE id = ?", (final_score, self.current_session_id))
                 conn.commit()
                 conn.close()
+                
+                end_msg = f"✅ Сканирането завърши успешно. Генериран е краен баланс: {final_score}% ANS Tone."
+                self.logs.append({"text": end_msg, "is_anomaly": False})
             except Exception:
                 pass
 
@@ -179,14 +202,12 @@ class SimulationSession:
 
     def to_dict(self) -> Dict[str, Any]:
         score = self.get_display_score()
-        
-        if score < 75:
-            instruction = "⚠️ ЗАСЕЧЕН СТРЕС: Вдишай дълбоко 2 пъти и издишай бавно за ресет на тялото."
-        elif score < 90:
-            instruction = "⚡ ЛЕКО НАПРЕЖЕНИЕ: Отпусни раменете и запази спокоен ритъм на дишане."
+        if score < 65:
+            instruction = "⚠️ СТРЕС И ПРЕУМОРА: Вдишай бавно през носа за 4 секунди, задръж 4 и издишай за 6 секунди. Намали екраните днес."
+        elif score < 85:
+            instruction = "⚡ ЛЕКО НАПРЕЖЕНИЕ: Наблюдава се симпатикова активност. Направи кратка почивка, раздвижи се и изпий чаша вода."
         else:
-            instruction = "💚 ОПТИМАЛЕН БАЛАНС: Нервната система е в хомеостаза."
-
+            instruction = "💚 ОПТИМАЛЕН БАЛАНС: Вегетативната нервна система е в перфектен синхрон. Продължавай в същия дух!"
         return {
             "anomaly_active": self.anomaly_active,
             "patient_name": self.current_patient_name,
@@ -225,6 +246,7 @@ async def websocket_endpoint(websocket: WebSocket, client_id: str):
                 if cmd.command == "toggle-anomaly":
                     if not session.anomaly_active:
                         session.anomaly_active = True
+                        session.last_received_hrv = None
                         session.start_new_scan_session()
                         await send_patient_history(websocket, session.current_patient_id)
                     else:
@@ -232,9 +254,14 @@ async def websocket_endpoint(websocket: WebSocket, client_id: str):
                         session.anomaly_active = False
                         await send_patient_history(websocket, session.current_patient_id)
                         session.current_session_id = None
+                        session.last_received_hrv = None
+                        
+                elif cmd.command == "submit-hrv-data" and cmd.hrv_ms is not None:
+                    if session.anomaly_active:
+                        session.last_received_hrv = cmd.hrv_ms
                         
                 elif cmd.command == "focus-node" and cmd.node_name:
-                    msg = f"🔍 Focused Analysis: {cmd.node_name}."
+                    msg = f"🔍 Фокусиран анализ на спектъра: {cmd.node_name}."
                     session.logs.append({"text": msg, "is_anomaly": False})
                     session.save_log_to_db(msg, 0)
                     
@@ -245,23 +272,25 @@ async def websocket_endpoint(websocket: WebSocket, client_id: str):
                             conn = sqlite3.connect(DB_FILE)
                             cursor = conn.cursor()
                             cursor.execute("INSERT OR IGNORE INTO patients (name) VALUES (?)", (name,))
+                            conn.commit()
+                            
                             cursor.execute("SELECT id FROM patients WHERE name = ?", (name,))
                             p_id = cursor.fetchone()[0]
+                            
                             cursor.execute("SELECT name FROM patients ORDER BY id DESC")
                             all_patients = [row[0] for row in cursor.fetchall()]
-                            conn.commit()
                             conn.close()
                             
                             session.current_patient_id = p_id
                             session.current_patient_name = name
                             session.current_session_id = None
-                            session.logs.append({"text": f"👤 Profile Activated: {name}", "is_anomaly": False})
+                            session.logs.append({"text": f"👤 Зареден нов клиентски профил: {name}", "is_anomaly": False})
                             
                             await websocket.send_json({"type": "patients_list", "data": all_patients})
                             await websocket.send_json({"type": "state", "data": session.to_dict()})
                             await send_patient_history(websocket, p_id)
-                        except Exception:
-                            pass
+                        except Exception as e:
+                            print(f"Error creating patient: {e}")
                             
                 elif cmd.command == "select-patient" and cmd.patient_name:
                     try:
@@ -273,7 +302,7 @@ async def websocket_endpoint(websocket: WebSocket, client_id: str):
                             session.current_patient_id = row[0]
                             session.current_patient_name = cmd.patient_name
                             session.current_session_id = None
-                            session.logs.append({"text": f"👤 Profile switched to: {cmd.patient_name}", "is_anomaly": False})
+                            session.logs.append({"text": f"👤 Профилът е превключен на: {cmd.patient_name}", "is_anomaly": False})
                             await send_patient_history(websocket, row[0])
                         conn.close()
                     except Exception:
@@ -290,14 +319,13 @@ async def websocket_endpoint(websocket: WebSocket, client_id: str):
                         conn.close()
                         archive_logs = [{"text": r[0], "is_anomaly": bool(r[1])} for r in rows]
                         await websocket.send_json({
-                            "type": "archive_logs", 
+                            "type": "archive_logs",
                             "data": {"logs": archive_logs, "date": session_row[0], "score": session_row[1]}
                         })
                     except Exception:
                         pass
-                        
             except ValidationError:
-                await websocket.send_json({"type": "error", "message": "Validation Error"})
+                await websocket.send_json({"type": "error", "message": "Проблем при валидация на данните."})
     except (WebSocketDisconnect, asyncio.TimeoutError):
         pass
     finally:
@@ -312,7 +340,7 @@ async def session_writer(websocket: WebSocket, session: SimulationSession):
         while True:
             session.update_state()
             await websocket.send_json({"type": "state", "data": session.to_dict()})
-            await asyncio.sleep(1.2)
+            await asyncio.sleep(1.0)
     except Exception:
         pass
 
@@ -330,7 +358,7 @@ async def send_patient_history(websocket: WebSocket, patient_id: int):
 HTML_CONTENT = """<!DOCTYPE html>
 <html>
 <head>
-    <title>OmniScan 369 - Holographic Dashboard</title>
+    <title>OmniScan 369 - HRV Diagnostics Dashboard</title>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <style>
@@ -338,18 +366,15 @@ HTML_CONTENT = """<!DOCTYPE html>
         #view-container { width: 68vw; height: 100vh; background: radial-gradient(circle at 50% 45%, #05162e 0%, #010205 100%); position: relative; display: flex; justify-content: center; align-items: center; }
         canvas { background: transparent; display: block; }
         #sidebar { width: 32vw; height: 100vh; background-color: #020205; border-left: 1px solid #102445; padding: 20px; box-sizing: border-box; display: flex; flex-direction: column; gap: 12px; overflow-y: auto; }
-        
         .brand-box { border-left: 3px solid #00f0ff; padding-left: 10px; position: relative; }
         h1 { font-size: 15px; color: #00f0ff; margin: 0; letter-spacing: 1.5px; text-transform: uppercase; text-shadow: 0 0 8px rgba(0,240,255,0.4); }
         .subtitle { font-size: 9px; color: #64748b; margin-top: 2px; font-weight: bold; text-transform: uppercase; }
         .vitality-badge { position: absolute; right: 0; top: 0; background: #064e3b; color: #34d399; font-size: 12px; padding: 4px 8px; border-radius: 3px; font-weight: bold; border: 1px solid #047857; box-shadow: 0 0 10px rgba(52,211,153,0.2); }
-        
         .instruction-box { padding: 10px; margin-top: 10px; font-size: 11px; border-radius: 4px; line-height: 1.4; text-align: center; font-weight: bold; transition: all 0.3s ease; }
         .instr-stress { color: #f87171; border: 1px solid #7f1d1d; background: #2a0a0a; animation: pulse-red 2s infinite; }
         .instr-warn { color: #fbbf24; border: 1px solid #b45309; background: #1f1406; }
         .instr-ok { color: #34d399; border: 1px solid #047857; background: #02120a; }
         @keyframes pulse-red { 0% { box-shadow: 0 0 0 0 rgba(220, 38, 38, 0.4); } 70% { box-shadow: 0 0 0 6px rgba(220, 38, 38, 0); } 100% { box-shadow: 0 0 0 0 rgba(220, 38, 38, 0); } }
-
         .db-panel { background: #060d1a; border: 1px solid #102445; padding: 10px; border-radius: 4px; display: flex; flex-direction: column; gap: 8px; }
         .db-title { font-size: 11px; color: #38bdf8; font-weight: bold; }
         .patient-row { display: flex; gap: 5px; }
@@ -359,14 +384,14 @@ HTML_CONTENT = """<!DOCTYPE html>
         .history-box { background: #020714; border: 1px solid #0f1f3d; max-height: 100px; overflow-y: auto; border-radius: 3px; padding: 4px; }
         .history-item { padding: 5px; font-size: 10px; border-bottom: 1px solid #091326; cursor: pointer; color: #94a3b8; display: flex; justify-content: space-between; }
         .history-item:hover { background: #0d1e3d; color: #fff; }
-        
         button.main-btn { background: #002b3d; border: 1px solid #00f0ff; color: #00f0ff; padding: 14px; cursor: pointer; border-radius: 4px; font-weight: bold; width: 100%; font-size: 11px; letter-spacing: 1px; font-family: monospace; min-height: 45px; text-shadow: 0 0 5px rgba(0,240,255,0.5); box-shadow: 0 0 10px rgba(0,240,255,0.1); transition: all 0.2s ease; }
         button.main-btn.active { background: #7f1d1d; color: #ffffff; box-shadow: 0 0 20px #dc2626; border-color: #ef4444; text-shadow: none; }
-        #logs-container { flex-grow: 1; min-height: 180px; overflow-y: auto; background: #010205; border: 1px solid #0b1629; padding: 12px; font-size: 11px; color: #00f0ff; border-radius: 4px; }
+        #logs-container { flex-grow: 1; min-height: 140px; overflow-y: auto; background: #010205; border: 1px solid #0b1629; padding: 12px; font-size: 11px; color: #00f0ff; border-radius: 4px; }
         .log-entry { margin-bottom: 8px; border-bottom: 1px solid #060d1a; padding-bottom: 6px; line-height: 1.4; }
         .log-anomaly { color: #f87171; border-left: 3px solid #dc2626; padding-left: 5px; }
         .active-patient-badge { font-size: 11px; color: #a7f3d0; background: #082f49; border: 1px solid #0369a1; padding: 4px 8px; border-radius: 3px; display: inline-block; margin-top: 4px;}
-        
+        #ppg-video { display: none; }
+        .camera-status { font-size: 10px; color: #a8a29e; text-align: center; margin-top: -4px; font-style: italic; }
         #print-report-area { display: none; }
         @media print {
             body { background: #ffffff !important; color: #1e293b !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; display: block !important; }
@@ -376,7 +401,6 @@ HTML_CONTENT = """<!DOCTYPE html>
             .print-anomaly-line { color: #b91c1c !important; border-left: 3px solid #ef4444 !important; padding-left: 6px; margin-bottom: 6px; }
             .print-normal-line { color: #0f766e !important; border-left: 3px solid #10b981 !important; padding-left: 6px; margin-bottom: 6px; }
         }
-        
         @media(max-width: 1024px) {
             body { flex-direction: column; height: auto; overflow-y: auto; }
             #view-container { width: 100vw; height: 55vh; min-height: 460px; }
@@ -387,37 +411,41 @@ HTML_CONTENT = """<!DOCTYPE html>
 <body>
     <div id="view-container">
         <canvas id="scanCanvas"></canvas>
+        <video id="ppg-video" autoplay playsinline></video>
     </div>
     <div id="sidebar">
         <div class="brand-box">
-            <h1>OMNISCAN 369 3D</h1>
-            <div class="subtitle">Bio-Resonance Hologram Matrix</div>
-            <div id="active-patient" class="active-patient-badge">Patient: None</div>
-            <div id="vitality-index" class="vitality-badge">ANS Tone: 98%</div>
-            <div id="therapy-instruction" class="instruction-box instr-ok">Изчаква се анализ на пациента...</div>
+            <h1>OMNISCAN 369</h1>
+            <div class="subtitle">Autonomic HRV Diagnostics</div>
+            <div id="active-patient" class="active-patient-badge">Клиент: Не избран</div>
+            <div id="vitality-index" class="vitality-badge">ANS Tone: 96%</div>
+            <div id="therapy-instruction" class="instruction-box instr-ok">Изчаква се старт на анализа...</div>
         </div>
         <div class="db-panel">
-            <div class="db-title">👤 CLIENT MANAGEMENT</div>
+            <div class="db-title">👤 УПРАВЛЕНИЕ НА КЛИЕНТИ</div>
             <div class="patient-row">
-                <input type="text" id="new-patient-name" placeholder="Enter client name...">
-                <button class="small-btn" id="btn-add-patient">ADD</button>
+                <input type="text" id="new-patient-name" placeholder="Име на клиент...">
+                <button class="small-btn" id="btn-add-patient">ДОБАВИ</button>
             </div>
-            <select id="patient-select"><option value="">-- Select Active Profile --</option></select>
-            <div class="db-title" style="margin-top: 5px;">📜 WELLNESS ASSESSMENT HISTORY</div>
+            <select id="patient-select"><option value="">-- Избери Активен Профил --</option></select>
+            <div class="db-title" style="margin-top: 5px;">📜 ИСТОРИЯ НА СКАНИРАНИЯТА</div>
             <div class="history-box" id="history-container">
-                <div style="font-size:10px; color:#475569; padding:5px;">No active client profile loaded.</div>
+                <div style="font-size:10px; color:#475569; padding:5px;">Няма избран клиент.</div>
             </div>
         </div>
         <button id="btn-anomaly" class="main-btn">RUN BIO-ASSESSMENT</button>
-        <div id="logs-container"><div class="log-entry">⚛️ 3D Hologram Engine Online...</div></div>
+        <div id="cam-status-text" class="camera-status">Поставете пръста си плътно на камерата при старт</div>
+        <div id="logs-container"><div class="log-entry">⚛️ 3D Скенер Енджинът е Онлайн...</div></div>
     </div>
     <div id="print-report-area"></div>
+
     <script>
         const canvas = document.getElementById('scanCanvas');
         const ctx = canvas.getContext('2d');
         const container = document.getElementById('view-container');
         const logsContainer = document.getElementById('logs-container');
         const anomBtn = document.getElementById('btn-anomaly');
+        const camStatusText = document.getElementById('cam-status-text');
         const addPatientBtn = document.getElementById('btn-add-patient');
         const newPatientInput = document.getElementById('new-patient-name');
         const patientSelect = document.getElementById('patient-select');
@@ -426,31 +454,39 @@ HTML_CONTENT = """<!DOCTYPE html>
         const historyContainer = document.getElementById('history-container');
         const printReportArea = document.getElementById('print-report-area');
         const therapyBox = document.getElementById('therapy-instruction');
+        const videoElement = document.getElementById('ppg-video');
+
+        let currentAppState = { anomaly_active: false, patient_name: "None", agents: [], logs: [], vitality_score: 96, instruction: "" };
+        let lastLoadedArchiveLogs = [];
+        let lastLoadedArchiveDate = "";
+        let lastLoadedArchiveScore = 96;
+
+        let videoStream = null;
+        let ppgCanvas = document.createElement('canvas');
+        let ppgCtx = ppgCanvas.getContext('2d');
         
-        let currentAppState = { anomaly_active: false, patient_name: "None", agents: [], logs: [], vitality_score: 98, instruction: "" };
-        let lastLoadedArchiveLogs = []; let lastLoadedArchiveDate = ""; let lastLoadedArchiveScore = 98;
-        
+        // Подобрени rPPG променливи за филтрация
+        let lastBeatTime = 0;
+        let ppgIntervalId = null;
+        let signalHistory = [];
+        let slowEMA = 0;
+        let fastEMA = 0;
+        let isIncreasing = false;
+
         const human3DMesh = [
-            {x: 0.50, y: 0.08}, {x: 0.53, y: 0.09}, {x: 0.55, y: 0.12}, {x: 0.55, y: 0.16}, 
-            {x: 0.52, y: 0.19}, {x: 0.50, y: 0.20}, {x: 0.48, y: 0.19}, {x: 0.45, y: 0.16}, 
-            {x: 0.45, y: 0.12}, {x: 0.47, y: 0.09}, {x: 0.50, y: 0.08},
-            {x: 0.52, y: 0.20}, {x: 0.53, y: 0.23}, {x: 0.58, y: 0.25}, {x: 0.63, y: 0.27},
-            {x: 0.65, y: 0.32}, {x: 0.67, y: 0.39}, {x: 0.68, y: 0.47}, {x: 0.69, y: 0.55}, 
-            {x: 0.67, y: 0.58}, {x: 0.65, y: 0.56}, 
-            {x: 0.65, y: 0.48}, {x: 0.63, y: 0.40}, {x: 0.60, y: 0.33},
-            {x: 0.59, y: 0.38}, {x: 0.58, y: 0.45}, {x: 0.59, y: 0.52}, {x: 0.57, y: 0.56},
-            {x: 0.56, y: 0.64}, {x: 0.55, y: 0.73}, {x: 0.53, y: 0.82}, {x: 0.52, y: 0.90}, 
-            {x: 0.53, y: 0.94}, {x: 0.49, y: 0.94},
-            {x: 0.49, y: 0.85}, {x: 0.51, y: 0.75}, {x: 0.52, y: 0.66}, {x: 0.50, y: 0.60},
-            {x: 0.48, y: 0.66}, {x: 0.49, y: 0.75}, {x: 0.51, y: 0.85}, {x: 0.51, y: 0.94}, 
-            {x: 0.47, y: 0.94}, {x: 0.48, y: 0.90}, {x: 0.47, y: 0.82}, {x: 0.45, y: 0.73}, 
-            {x: 0.44, y: 0.64},
-            {x: 0.43, y: 0.56}, {x: 0.41, y: 0.52}, {x: 0.42, y: 0.45}, {x: 0.41, y: 0.38},
-            {x: 0.40, y: 0.33}, {x: 0.37, y: 0.40}, {x: 0.35, y: 0.48}, {x: 0.35, y: 0.56}, 
-            {x: 0.33, y: 0.58}, {x: 0.31, y: 0.55}, {x: 0.32, y: 0.47}, {x: 0.33, y: 0.39}, 
-            {x: 0.35, y: 0.32},
+            {x: 0.50, y: 0.08}, {x: 0.53, y: 0.09}, {x: 0.55, y: 0.12}, {x: 0.55, y: 0.16}, {x: 0.52, y: 0.19}, {x: 0.50, y: 0.20},
+            {x: 0.48, y: 0.19}, {x: 0.45, y: 0.16}, {x: 0.45, y: 0.12}, {x: 0.47, y: 0.09}, {x: 0.50, y: 0.08}, {x: 0.52, y: 0.20},
+            {x: 0.53, y: 0.23}, {x: 0.58, y: 0.25}, {x: 0.63, y: 0.27}, {x: 0.65, y: 0.32}, {x: 0.67, y: 0.39}, {x: 0.68, y: 0.47},
+            {x: 0.69, y: 0.55}, {x: 0.67, y: 0.58}, {x: 0.65, y: 0.56}, {x: 0.65, y: 0.48}, {x: 0.63, y: 0.40}, {x: 0.60, y: 0.33},
+            {x: 0.59, y: 0.38}, {x: 0.58, y: 0.45}, {x: 0.59, y: 0.52}, {x: 0.57, y: 0.56}, {x: 0.56, y: 0.64}, {x: 0.55, y: 0.73},
+            {x: 0.53, y: 0.82}, {x: 0.52, y: 0.90}, {x: 0.53, y: 0.94}, {x: 0.49, y: 0.94}, {x: 0.49, y: 0.85}, {x: 0.51, y: 0.75},
+            {x: 0.52, y: 0.66}, {x: 0.50, y: 0.60}, {x: 0.48, y: 0.66}, {x: 0.49, y: 0.75}, {x: 0.51, y: 0.85}, {x: 0.51, y: 0.94},
+            {x: 0.47, y: 0.94}, {x: 0.48, y: 0.90}, {x: 0.47, y: 0.82}, {x: 0.45, y: 0.73}, {x: 0.44, y: 0.64}, {x: 0.43, y: 0.56},
+            {x: 0.41, y: 0.52}, {x: 0.42, y: 0.45}, {x: 0.41, y: 0.38}, {x: 0.40, y: 0.33}, {x: 0.37, y: 0.40}, {x: 0.35, y: 0.48},
+            {x: 0.35, y: 0.56}, {x: 0.33, y: 0.58}, {x: 0.31, y: 0.55}, {x: 0.32, y: 0.47}, {x: 0.33, y: 0.39}, {x: 0.35, y: 0.32},
             {x: 0.37, y: 0.27}, {x: 0.42, y: 0.25}, {x: 0.47, y: 0.23}, {x: 0.48, y: 0.20}
         ];
+
         const innerAnatomyLines = [
             [{x: 0.43, y: 0.27}, {x: 0.50, y: 0.29}, {x: 0.57, y: 0.27}],
             [{x: 0.44, y: 0.33}, {x: 0.50, y: 0.34}, {x: 0.56, y: 0.33}],
@@ -464,11 +500,15 @@ HTML_CONTENT = """<!DOCTYPE html>
 
         const clientId = crypto.randomUUID();
         const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-        let host = window.location.host; let path = window.location.pathname;
+        let host = window.location.host;
+        let path = window.location.pathname;
         let wsUrl = `${protocol}//${host}/ws/${clientId}`;
-        if (path.includes('/embed/')) { wsUrl = `${protocol}//${host}${path.replace(/\/$/, '')}/ws/${clientId}`.replace(/([^:]\/)\/+/g, "$1"); }
-        
+        if (path.includes('/embed/')) {
+            wsUrl = `${protocol}//${host}${path.replace(/\/$/, '')}/ws/${clientId}`.replace(/([^:]\/)\/+/g, "$1");
+        }
+
         const ws = new WebSocket(wsUrl);
+
         ws.onmessage = (event) => {
             const res = JSON.parse(event.data);
             if (res.type === "patients_list") updatePatientsDropdown(res.data);
@@ -476,75 +516,234 @@ HTML_CONTENT = """<!DOCTYPE html>
             else if (res.type === "archive_logs") renderArchiveLogs(res.data.logs, res.data.date, res.data.score);
             else if (res.type === "state") {
                 currentAppState = res.data;
-                activePatientBadge.innerText = `Client: ${currentAppState.patient_name}`;
+                activePatientBadge.innerText = `Клиент: ${currentAppState.patient_name === "None" ? 'Не избран' : currentAppState.patient_name}`;
                 vitalityIndexBox.innerText = `ANS Tone: ${currentAppState.vitality_score}%`;
-                vitalityIndexBox.style.background = currentAppState.vitality_score < 50 ? "#7f1d1d" : "#064e3b";
+                vitalityIndexBox.style.background = currentAppState.vitality_score < 65 ? "#7f1d1d" : (currentAppState.vitality_score < 85 ? "#b45309" : "#064e3b");
                 
                 if (currentAppState.instruction) {
                     therapyBox.innerText = currentAppState.instruction;
-                    if (currentAppState.vitality_score < 75) {
+                    if (currentAppState.vitality_score < 65) {
                         therapyBox.className = "instruction-box instr-stress";
-                    } else if (currentAppState.vitality_score < 90) {
+                    } else if (currentAppState.vitality_score < 85) {
                         therapyBox.className = "instruction-box instr-warn";
                     } else {
                         therapyBox.className = "instruction-box instr-ok";
                     }
                 }
-                
                 if (currentAppState.patient_name !== "None") patientSelect.value = currentAppState.patient_name;
                 renderLogs();
             }
         };
-        function sendCommand(obj) { if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(obj)); }
-        function updatePatientsDropdown(list) { patientSelect.innerHTML = '<option value="">-- Select Active Profile --</option>' + list.map(p => `<option value="${p}">${p}</option>`).join(''); if (currentAppState.patient_name !== "None") patientSelect.value = currentAppState.patient_name; }
-        function renderHistory(list) { if(list.length === 0) { historyContainer.innerHTML = '<div style="font-size:10px; color:#475569; padding:5px;">No past scans.</div>'; return; } historyContainer.innerHTML = list.map(h => `<div class="history-item" onclick="loadArchiveSession(${h.id})"><span>📅 ${h.date} (${h.score}%)</span><span style="color:#38bdf8;">⚡ Report</span></div>`).join(''); }
-        function loadArchiveSession(id) { sendCommand({ command: "get-session-details", session_id: id }); }
-        
+
+        function sendCommand(obj) {
+            if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(obj));
+        }
+
+        function updatePatientsDropdown(list) {
+            patientSelect.innerHTML = '<option value="">-- Избери Активен Профил --</option>' + list.map(p => `<option value="${p}">${p}</option>`).join('');
+            if (currentAppState.patient_name !== "None") patientSelect.value = currentAppState.patient_name;
+        }
+
+        function renderHistory(list) {
+            if(list.length === 0) {
+                historyContainer.innerHTML = '<div style="font-size:10px; color:#475569; padding:5px;">Няма минали сесии.</div>';
+                return;
+            }
+            historyContainer.innerHTML = list.map(h => `<div class="history-item" onclick="loadArchiveSession(${h.id})"><span>📅 ${h.date} (${h.score}%)</span><span style="color:#38bdf8;">⚡ Доклад</span></div>`).join('');
+        }
+
+        function loadArchiveSession(id) {
+            sendCommand({ command: "get-session-details", session_id: id });
+        }
+
         function renderArchiveLogs(logs, sessionDate, score) {
-            lastLoadedArchiveLogs = logs; lastLoadedArchiveDate = sessionDate; lastLoadedArchiveScore = score;
-            logsContainer.innerHTML = `<div style="color:#00f0ff; border-bottom:1px solid #00f0ff; padding-bottom:4px; margin-bottom:8px; display:flex; justify-content:space-between;"><span style="font-weight:bold;">📁 REPORT (${score}%)</span><button id="real-print-btn" style="background:#00f0ff; color:#000; border:none; padding:4px 8px; font-size:10px; cursor:pointer; font-weight:bold; border-radius:2px;">PRINT</button></div>` + logs.map(l => `<div class="log-entry ${l.is_anomaly ? 'log-anomaly' : ''}">${l.text}</div>`).join('');
+            lastLoadedArchiveLogs = logs;
+            lastLoadedArchiveDate = sessionDate;
+            lastLoadedArchiveScore = score;
+            logsContainer.innerHTML = `<div style="color:#00f0ff; border-bottom:1px solid #00f0ff; padding-bottom:4px; margin-bottom:8px; display:flex; justify-content:space-between;"><span style="font-weight:bold;">📁 ДОКЛАД ИЗСЛЕДВАНЕ (${score}%)</span><button id="real-print-btn" style="background:#00f0ff; color:#000; border:none; padding:4px 8px; font-size:10px; cursor:pointer; font-weight:bold; border-radius:2px;">ПЕЧАТ</button></div>` + logs.map(l => `<div class="log-entry ${l.is_anomaly ? 'log-anomaly' : ''}">${l.text}</div>`).join('');
             logsContainer.scrollTop = 0;
             document.getElementById('real-print-btn').addEventListener('click', triggerDirectPrint);
         }
-        
+
         function triggerDirectPrint() {
             let logHTML = lastLoadedArchiveLogs.map(l => `<div class="${l.is_anomaly ? 'print-anomaly-line' : 'print-normal-line'}">${l.text}</div>`).join('');
             let currentInstruction = therapyBox.innerText;
-
             printReportArea.innerHTML = `
                 <div style="border-left: 4px solid #00f0ff; padding-left: 15px; margin-bottom: 30px;">
-                    <h2 style="margin:0; color:#0369a1; font-size:24px;">🧬 OMNISCAN 369 - BIO-WELLNESS REPORT</h2>
-                    <p style="margin:5px 0; color:#64748b; font-size:12px;">Autonomic Nervous System & HRV Diagnostic Analytics</p>
+                    <h2 style="margin:0; color:#0369a1; font-size:24px;">🧬 OMNISCAN 369 - КЛИНИЧЕН HRV ДОКЛАД</h2>
+                    <p style="margin:5px 0; color:#64748b; font-size:12px;">Автономна нервна система и спектрален анализ на сърдечния ритъм</p>
                 </div>
                 <table style="width:100%; border-collapse:collapse; margin-bottom:30px; font-size:14px; color:#334155;">
-                    <tr style="background:#f1f5f9;"><td style="padding:8px; font-weight:bold; width:160px;">CLIENT PROFILE:</td><td style="padding:8px; border-bottom:1px solid #e2e8f0;">${currentAppState.patient_name}</td></tr>
-                    <tr><td style="padding:8px; font-weight:bold;">ASSESSMENT DATE:</td><td style="padding:8px; border-bottom:1px solid #e2e8f0;">${lastLoadedArchiveDate}</td></tr>
-                    <tr style="background:#f8fafc;"><td style="padding:8px; font-weight:bold;">AUTONOMIC SCORE:</td><td style="padding:8px; border-bottom:1px solid #e2e8f0; color:#0369a1; font-weight:bold; font-size:16px;">${lastLoadedArchiveScore}% (ANS Tone)</td></tr>
+                    <tr style="background:#f1f5f9;"><td style="padding:8px; font-weight:bold; width:160px;">ПАЦИЕНТ / КЛИЕНТ:</td><td style="padding:8px; border-bottom:1px solid #e2e8f0;">${currentAppState.patient_name}</td></tr>
+                    <tr><td style="padding:8px; font-weight:bold;">ДАТА НА СКАНИРАНЕ:</td><td style="padding:8px; border-bottom:1px solid #e2e8f0;">${lastLoadedArchiveDate}</td></tr>
+                    <tr style="background:#f8fafc;"><td style="padding:8px; font-weight:bold;">ВЕГЕТАТИВЕН ТОНУС:</td><td style="padding:8px; border-bottom:1px solid #e2e8f0; color:#0369a1; font-weight:bold; font-size:16px;">${lastLoadedArchiveScore}% (ANS Tone Index)</td></tr>
                 </table>
                 <div class="print-card" style="margin-bottom: 20px;">${logHTML}</div>
-                
                 <div style="margin-top: 30px; padding: 15px; border: 1px dashed #0369a1; background: #f0f9ff; border-radius: 4px;">
-                    <h4 style="margin: 0 0 8px 0; color: #0369a1; font-size: 14px;">🧘 RECOMMENDED THERAPY ACTION (Предписание):</h4>
-                    <p style="margin: 0; font-size: 13px; color: #1e293b; line-height: 1.5; font-weight: bold;">
-                        ${currentInstruction}
-                    </p>
+                    <h4 style="margin: 0 0 8px 0; color: #0369a1; font-size: 14px;">🧘 ПРЕПОРЪЧИТЕЛНИ УЕЛНЕС ДЕЙСТВИЯ:</h4>
+                    <p style="margin: 0; font-size: 13px; color: #1e293b; line-height: 1.5; font-weight: bold;"> ${currentInstruction} </p>
                 </div>
             `;
             window.print();
         }
-        
-        addPatientBtn.addEventListener('click', () => { const val = newPatientInput.value.trim(); if(val) { sendCommand({ command: "create-patient", patient_name: val }); newPatientInput.value = ""; } });
-        patientSelect.addEventListener('change', (e) => { if(e.target.value) sendCommand({ command: "select-patient", patient_name: e.target.value }); });
-        function renderLogs() { if (!currentAppState.anomaly_active && logsContainer.innerHTML.includes("REPORT")) return; logsContainer.innerHTML = currentAppState.logs.map(l => `<div class="log-entry ${l.is_anomaly ? 'log-anomaly' : ''}">${l.text}</div>`).join(''); logsContainer.scrollTop = logsContainer.scrollHeight; }
-        anomBtn.addEventListener('click', () => { sendCommand({ command: "toggle-anomaly" }); });
+
+        addPatientBtn.addEventListener('click', () => {
+            const val = newPatientInput.value.trim();
+            if(val) {
+                sendCommand({ command: "create-patient", patient_name: val });
+                newPatientInput.value = "";
+            }
+        });
+
+        patientSelect.addEventListener('change', (e) => {
+            if(e.target.value) sendCommand({ command: "select-patient", patient_name: e.target.value });
+        });
+
+        function renderLogs() {
+            if (!currentAppState.anomaly_active && logsContainer.innerHTML.includes("ДОКЛАД")) return;
+            logsContainer.innerHTML = currentAppState.logs.map(l => `<div class="log-entry ${l.is_anomaly ? 'log-anomaly' : ''}">${l.text}</div>`).join('');
+            logsContainer.scrollTop = logsContainer.scrollHeight;
+        }
+
+        anomBtn.addEventListener('click', async () => {
+            if (!currentAppState.anomaly_active) {
+                if (currentAppState.patient_name === "None" || !currentAppState.patient_name) {
+                    alert("Моля, изберете или създайте профил на клиент преди сканиране!");
+                    return;
+                }
+                await startCameraPPG();
+            } else {
+                stopCameraPPG();
+            }
+            sendCommand({ command: "toggle-anomaly" });
+        });
+
+        async function startCameraPPG() {
+            try {
+                signalHistory = [];
+                slowEMA = 0;
+                fastEMA = 0;
+                lastBeatTime = performance.now();
+                camStatusText.innerText = "⚡ Инициализиране на био-оптичен сензор...";
+                camStatusText.style.color = "#00f0ff";
+
+                videoStream = await navigator.mediaDevices.getUserMedia({
+                    video: { facingMode: "environment", width: { ideal: 300 }, height: { ideal: 300 } }
+                });
+                videoElement.srcObject = videoStream;
+
+                setTimeout(async () => {
+                    try {
+                        const track = videoStream.getVideoTracks()[0];
+                        const capabilities = track.getCapabilities();
+                        if (capabilities.torch) {
+                            await track.applyConstraints({ advanced: [{ torch: true }] });
+                            camStatusText.innerText = "🔴 Покрийте камерата стабилно с възглавничката на пръста!";
+                            camStatusText.style.color = "#ef4444";
+                        } else {
+                            camStatusText.innerText = "🔴 Поставете пръста пред ярък източник на светлина!";
+                        }
+                    } catch (err) {
+                        camStatusText.innerText = "🔴 Покрийте обектива плътно с пръст!";
+                    }
+                }, 1000);
+
+                ppgIntervalId = setInterval(analyzePPGFrame, 40); // Оптимизирано на 40ms за стабилни ~25 кадъра в секунда
+            } catch (error) {
+                console.error("Camera access failed:", error);
+                camStatusText.innerText = "⚠️ Сензорът не е открит. Преминаване в автоматичен режим на симулация.";
+                camStatusText.style.color = "#fbbf24";
+            }
+        }
+
+        function stopCameraPPG() {
+            if (ppgIntervalId) clearInterval(ppgIntervalId);
+            if (videoStream) {
+                videoStream.getTracks().forEach(track => track.stop());
+            }
+            videoStream = null;
+            camStatusText.innerText = "Поставете пръста си на камерата при старт";
+            camStatusText.style.color = "#a8a29e";
+        }
+
+        function analyzePPGFrame() {
+            if (!videoStream || videoElement.paused || videoElement.ended) return;
+
+            ppgCanvas.width = 64;
+            ppgCanvas.height = 64;
+            ppgCtx.drawImage(videoElement, 0, 0, ppgCanvas.width, ppgCanvas.height);
+
+            const imgData = ppgCtx.getImageData(0, 0, ppgCanvas.width, ppgCanvas.height);
+            const data = imgData.data;
+            
+            let gSum = 0;
+            let rSum = 0;
+
+            for (let i = 0; i < data.length; i += 4) {
+                rSum += data[i];     // Червен канал
+                gSum += data[i + 1]; // Зелен канал (Критичен за rPPG)
+            }
+            
+            let avgRed = rSum / (data.length / 4);
+            let avgGreen = gSum / (data.length / 4);
+
+            // Проверка за лош контакт (пръстът не е поставен или няма светлина)
+            if (avgRed < 50 || avgGreen > avgRed) {
+                camStatusText.innerText = "🚨 Лош контакт. Натиснете пръста по-плътно до обектива!";
+                camStatusText.style.color = "#fbbf24";
+                return;
+            }
+
+            // Инициализация и Лентов Филтър (Bandpass) чрез Exponential Moving Average (EMA)
+            if (slowEMA === 0) {
+                slowEMA = avgGreen;
+                fastEMA = avgGreen;
+                return;
+            }
+
+            // Филтриране на високочестотния и нискочестотния шум
+            slowEMA = (slowEMA * 0.98) + (avgGreen * 0.02);
+            fastEMA = (fastEMA * 0.82) + (avgGreen * 0.18);
+            let filteredSignal = fastEMA - slowEMA;
+
+            signalHistory.push(filteredSignal);
+            if (signalHistory.length > 30) signalHistory.shift();
+
+            // Научен алгоритъм за засичане на истински пикове (Peak Detection)
+            if (signalHistory.length > 3) {
+                let prevVal = signalHistory[signalHistory.length - 2];
+                let currVal = signalHistory[signalHistory.length - 1];
+
+                // Откриване на локален максимум (обръщане на вълната нагоре)
+                if (isIncreasing && currVal < prevVal && prevVal > 0.15) {
+                    let now = performance.now();
+                    let timeDiffMs = Math.round(now - lastBeatTime);
+
+                    // Валидация за нормален човешки пулс в диапазон 45 - 150 удара/мин
+                    if (timeDiffMs > 400 && timeDiffMs < 1300) {
+                        camStatusText.innerText = `❤️ Оптично засичане на пулсова вълна... RR: ${timeDiffMs}ms`;
+                        camStatusText.style.color = "#34d399";
+                        
+                        // Пращаме чистия времеви интервал в милисекунди към Python бекенда
+                        sendCommand({ command: "submit-hrv-data", hrv_ms: timeDiffMs });
+                        lastBeatTime = now;
+                    }
+                    isIncreasing = false;
+                } else if (currVal > prevVal) {
+                    isIncreasing = true;
+                }
+            }
+        }
 
         let laserY = 0.0;
         let laserDirection = 1;
+
         function drawLoop() {
             ctx.clearRect(0, 0, canvas.width, canvas.height);
-            const w = canvas.width; const h = canvas.height;
+            const w = canvas.width;
+            const h = canvas.height;
             const isAnomActive = currentAppState.anomaly_active;
-            
+
             if (isAnomActive) {
                 laserY += 0.008 * laserDirection;
                 if (laserY > 0.95 || laserY < 0.05) laserDirection *= -1;
@@ -556,7 +755,6 @@ HTML_CONTENT = """<!DOCTYPE html>
             ctx.shadowBlur = 15;
             ctx.shadowColor = isAnomActive ? 'rgba(239, 68, 68, 0.9)' : 'rgba(0, 240, 255, 0.9)';
             ctx.strokeStyle = isAnomActive ? '#ef4444' : '#00f0ff';
-            
             ctx.beginPath();
             human3DMesh.forEach((pt, i) => {
                 let targetX = pt.x * w;
@@ -576,9 +774,8 @@ HTML_CONTENT = """<!DOCTYPE html>
                 });
                 ctx.stroke();
             });
-            
-            ctx.shadowBlur = 0; 
-            
+            ctx.shadowBlur = 0;
+
             if (isAnomActive) {
                 ctx.shadowBlur = 10;
                 ctx.shadowColor = '#ef4444';
@@ -590,56 +787,53 @@ HTML_CONTENT = """<!DOCTYPE html>
                 ctx.stroke();
                 ctx.shadowBlur = 0;
             }
-            
+
             if (currentAppState.agents) {
                 const pulses = (Date.now() * 0.005);
-                
                 currentAppState.agents.forEach((agent, index) => {
                     let pointX = agent.x * w;
                     let pointY = agent.y * h;
-                    
                     let radius = agent.is_anomaly ? 6.5 + Math.sin(pulses + index) * 2.5 : 5 + Math.sin(pulses * 0.5 + index) * 1.5;
-                    
+
                     ctx.beginPath();
                     ctx.arc(pointX, pointY, radius + 4, 0, 2 * Math.PI);
                     ctx.fillStyle = agent.is_anomaly ? 'rgba(239, 68, 68, 0.25)' : 'rgba(0, 240, 255, 0.15)';
                     ctx.fill();
-                    
+
                     ctx.beginPath();
                     ctx.arc(pointX, pointY, radius, 0, 2 * Math.PI);
                     ctx.fillStyle = agent.is_anomaly ? '#ef4444' : '#00f0ff';
                     ctx.fill();
-                    
+
                     ctx.fillStyle = agent.is_anomaly ? '#f87171' : '#cbd5e1';
                     ctx.font = 'bold 11px monospace';
-                    
                     let labelText = `${agent.name} [${agent.hrv}ms]`;
-                    let labelX = agent.side === 'left' ? 20 : w - ctx.measureText(labelText).width - 20;
-                    
+                    let labelX = agent.side === 'left' ? 15 : w - ctx.measureText(labelText).width - 15;
+                    let adjustedY = pointY + 3;
+
                     ctx.beginPath();
-                    ctx.strokeStyle = agent.is_anomaly ? 'rgba(239, 68, 68, 0.2)' : 'rgba(0, 240, 255, 0.15)';
+                    ctx.strokeStyle = agent.is_anomaly ? 'rgba(239, 68, 68, 0.25)' : 'rgba(0, 240, 255, 0.2)';
                     ctx.lineWidth = 1;
                     ctx.moveTo(pointX, pointY);
-                    ctx.lineTo(agent.side === 'left' ? labelX + ctx.measureText(labelText).width - 30 : labelX, pointY);
+                    ctx.lineTo(agent.side === 'left' ? labelX + ctx.measureText(labelText).width - 10 : labelX + 10, pointY);
                     ctx.stroke();
-                    
-                    ctx.fillText(labelText, labelX, pointY + 4);
+                    ctx.fillText(labelText, labelX, adjustedY);
                 });
             }
+
             anomBtn.className = isAnomActive ? 'main-btn active' : 'main-btn';
-            anomBtn.innerText = isAnomActive ? "🚨 ANALYSIS IN PROGRESS..." : "RUN BIO-ASSESSMENT";
-            
+            anomBtn.innerText = isAnomActive ? "🚨 СКАНИРАНЕ В ИЗПЪЛНЕНИЕ (АКТИВЕН СЕНЗОР)..." : "RUN BIO-ASSESSMENT";
             requestAnimationFrame(drawLoop);
         }
+
         function resizeCanvas() {
             canvas.width = container.clientWidth;
             canvas.height = container.clientHeight;
         }
-        
+
         window.addEventListener('resize', resizeCanvas);
         resizeCanvas();
         requestAnimationFrame(drawLoop);
     </script>
 </body>
-</html>
-"""
+</html>"""
